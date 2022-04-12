@@ -1,0 +1,16 @@
+#goal definition
+int32 order
+int64 traj_id
+time start_time
+int8 status # 0 is new, 1 is replan, 2 is bspline 
+float64[] knots
+geometry_msgs/Point[] pos_pts
+float64[] yaw_pts
+float64 yaw_dt
+---
+#result definition
+float64 total_time
+float64 total_distance_travelled
+---
+#feedback
+float64 remaining_time

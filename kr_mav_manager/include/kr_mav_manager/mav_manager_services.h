@@ -161,6 +161,15 @@ class MAVManagerServices
       last_cb_ = "estop";
     return true;
   }
+  bool bspline_tracker(std_srvs::Trigger::Request &req, std_srvs::Trigger::Response &res)
+  {
+    res.success = mav->useBsplineTracker();
+    res.message = "Bspline Tracker";
+    if(res.success)
+      last_cb_ = "bspline_tracker";
+    return true;
+  }
+
 
   // Constructor
   MAVManagerServices(std::shared_ptr<MAVManager> m) : nh_("~"), mav(m), last_cb_("")
@@ -181,6 +190,7 @@ class MAVManagerServices
     srvs_.push_back(nh_.advertiseService("land", &MAVManagerServices::land_cb, this));
     srvs_.push_back(nh_.advertiseService("eland", &MAVManagerServices::eland_cb, this));
     srvs_.push_back(nh_.advertiseService("estop", &MAVManagerServices::estop_cb, this));
+    srvs_.push_back(nh_.advertiseService("bspline_tracker", &MAVManagerServices::bspline_tracker, this));
   }
 
  protected:

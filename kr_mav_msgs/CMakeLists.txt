@@ -22,7 +22,8 @@ add_message_files(
   SO3Command.msg
   Serial.msg
   StatusData.msg
-  TRPYCommand.msg)
+  TRPYCommand.msg
+  Bspline.msg)
 
 generate_messages(DEPENDENCIES geometry_msgs)
 

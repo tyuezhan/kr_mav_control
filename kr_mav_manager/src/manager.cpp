@@ -28,6 +28,8 @@ static const std::string null_tracker_str("kr_trackers/NullTracker");
 static const std::string circle_tracker_str("kr_trackers/CircleTracker");
 static const std::string lissajous_tracker_str("kr_trackers/LissajousTracker");
 static const std::string lissajous_adder_str("kr_trackers/LissajousAdder");
+static const std::string bspline_tracker_str("kr_trackers/BsplineTracker");
+
 
 MAVManager::MAVManager(std::string ns)
     : nh_(ns),
@@ -50,7 +52,8 @@ MAVManager::MAVManager(std::string ns)
       line_tracker_min_jerk_client_(nh_, "trackers_manager/line_tracker_min_jerk/LineTracker", true),
       circle_tracker_client_(nh_, "trackers_manager/circle_tracker/CircleTracker", true),
       lissajous_tracker_client_(nh_, "trackers_manager/lissajous_tracker/LissajousTracker", true),
-      lissajous_adder_client_(nh_, "trackers_manager/lissajous_adder/LissajousAdder", true)
+      lissajous_adder_client_(nh_, "trackers_manager/lissajous_adder/LissajousAdder", true),
+      bspline_tracker_client_(nh_, "trackers_manager/bspline_tracker/BsplineTracker", true)
 {
   // Action servers.
   float server_wait_timeout;
@@ -81,6 +84,12 @@ MAVManager::MAVManager(std::string ns)
   {
     ROS_WARN("LissajousAdder server not found.");
   }
+
+  if(!bspline_tracker_client_.waitForServer(ros::Duration(server_wait_timeout)))
+  {
+    ROS_WARN("BsplineTracker server not found.");
+  }
+
 
   pub_motors_ = nh_.advertise<std_msgs::Bool>("motors", 10);
   pub_estop_ = nh_.advertise<std_msgs::Empty>("estop", 10);
@@ -580,6 +589,15 @@ bool MAVManager::useNullTracker()
 {
   if(active_tracker_.compare(null_tracker_str) != 0)
     return this->transition(null_tracker_str);
+
+  return true;
+}
+
+
+bool MAVManager::useBsplineTracker()
+{
+  if(active_tracker_.compare(bspline_tracker_str) != 0)
+    return this->transition(bspline_tracker_str);
 
   return true;
 }
