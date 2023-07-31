@@ -42,10 +42,19 @@ class SO3ControlNodelet : public nodelet::Nodelet
   void enable_motors_callback(const std_msgs::Bool::ConstPtr &msg);
   void corrections_callback(const kr_mav_msgs::Corrections::ConstPtr &msg);
   void cfg_callback(kr_mav_controllers::SO3Config &config, uint32_t level);
+  // initialize sloam_to_vio_odom_ to nullptr
+  nav_msgs::OdometryConstPtr sloam_to_vio_odom_  = nullptr;
+
+  // Active SLAM thing:
+  Eigen::Matrix4d odometryToTransformationMatrix(
+      const nav_msgs::Odometry &odometry_msg);
+  Eigen::Matrix3d quaternionToRotationMatrix(const geometry_msgs::Quaternion &q);
+  void sloamToVioCallback_(const nav_msgs::OdometryConstPtr &msg);
+
 
   SO3Control controller_;
   ros::Publisher so3_command_pub_, command_viz_pub_;
-  ros::Subscriber odom_sub_, position_cmd_sub_, enable_motors_sub_, corrections_sub_;
+  ros::Subscriber odom_sub_, position_cmd_sub_, enable_motors_sub_, corrections_sub_, sloam_to_vio_odom_sub_;
 
   bool position_cmd_updated_, position_cmd_init_;
   std::string frame_id_;
@@ -110,6 +119,46 @@ void SO3ControlNodelet::publishSO3Command()
   so3_command->aux.angle_corrections[1] = corrections_[2];
   so3_command->aux.enable_motors = enable_motors_;
   so3_command->aux.use_external_yaw = use_external_yaw_;
+
+
+  // // check if sloam_to_vio_odom_ is nullptr, if yes, publish so3_command directly
+  // if (sloam_to_vio_odom_ == nullptr) {
+  //   ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
+  // } else{ 
+  //   Eigen::Matrix3d sloam_to_vio_rot = quaternionToRotationMatrix((*sloam_to_vio_odom_).pose.pose.orientation);
+  //   // calculate vio_to_sloam_rot
+  //   Eigen::Matrix3d vio_to_sloam_rot = sloam_to_vio_rot.transpose();
+    
+  //   // apply vio_to_sloam_rot on so3_command->force
+  //   Eigen::Vector3d msg_force(so3_command->force.x, so3_command->force.y, so3_command->force.z);
+  //   Eigen::Vector3d msg_force_sloam_frame = vio_to_sloam_rot * msg_force;
+  //   so3_command->force.x = msg_force_sloam_frame(0);
+  //   so3_command->force.y = msg_force_sloam_frame(1);
+  //   so3_command->force.z = msg_force_sloam_frame(2);
+  //   // H_s^w = H_v^w * H_s^v
+  //   // H_v^w can get from the so3_command->orientation
+  //   Eigen::Matrix3d Hvw = quaternionToRotationMatrix(so3_command->orientation);
+  //   Eigen::Matrix3d Hsw = Hvw * sloam_to_vio_rot;
+
+  //   // convert Hsw to quaternion
+  //   Eigen::Quaterniond q(Hsw);
+  //   so3_command->orientation.x = q.x();
+  //   so3_command->orientation.y = q.y();
+  //   so3_command->orientation.z = q.z();
+  //   so3_command->orientation.w = q.w();
+  //   // apply vio_to_sloam_rot on so3_command->angular_velocity
+  //   Eigen::Vector3d msg_angular_velocity(so3_command->angular_velocity.x, so3_command->angular_velocity.y, so3_command->angular_velocity.z);
+  //   Eigen::Vector3d msg_angular_velocity_sloam_frame = vio_to_sloam_rot * msg_angular_velocity;
+  //   so3_command->angular_velocity.x = msg_angular_velocity_sloam_frame(0);
+  //   so3_command->angular_velocity.y = msg_angular_velocity_sloam_frame(1);
+  //   so3_command->angular_velocity.z = msg_angular_velocity_sloam_frame(2);
+
+  //   // use the sloam yaw in the aux
+  //   // extract yaw from rotation matrix Hvw
+  //   double c_yaw = atan2(Hvw(1,0), Hvw(0,0));
+  //   so3_command->aux.current_yaw = current_yaw_;
+  //   // so3_command_pub_.publish(so3_command);
+  // }
   so3_command_pub_.publish(so3_command);
 
   geometry_msgs::PoseStamped::Ptr cmd_viz_msg = boost::make_shared<geometry_msgs::PoseStamped>();
@@ -124,12 +173,109 @@ void SO3ControlNodelet::publishSO3Command()
   command_viz_pub_.publish(cmd_viz_msg);
 }
 
+void SO3ControlNodelet::sloamToVioCallback_(const nav_msgs::OdometryConstPtr &msg)
+{
+  sloam_to_vio_odom_ = msg;
+}
+
 void SO3ControlNodelet::position_cmd_callback(const kr_mav_msgs::PositionCommand::ConstPtr &cmd)
 {
-  des_pos_ = Eigen::Vector3f(cmd->position.x, cmd->position.y, cmd->position.z);
-  des_vel_ = Eigen::Vector3f(cmd->velocity.x, cmd->velocity.y, cmd->velocity.z);
-  des_acc_ = Eigen::Vector3f(cmd->acceleration.x, cmd->acceleration.y, cmd->acceleration.z);
-  des_jrk_ = Eigen::Vector3f(cmd->jerk.x, cmd->jerk.y, cmd->jerk.z);
+  // // check if sloam_to_vio_odom_ is nullptr, if yes, publish so3_command directly
+  // if (sloam_to_vio_odom_ == nullptr) {
+  //   ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
+  // } else{ 
+  //   ROS_INFO_THROTTLE(1, "applying sloam_to_vio_odom_ to position cmd, ONLY FOR SIMULATOR!!!");
+  //   Eigen::Matrix3d sloam_to_vio_rot = quaternionToRotationMatrix((*sloam_to_vio_odom_).pose.pose.orientation);
+  //   // calculate vio_to_sloam_rot
+  //   Eigen::Matrix3d vio_to_sloam_rot = sloam_to_vio_rot.transpose();
+    
+  //   // apply vio_to_sloam_rot on so3_command->force
+  //   Eigen::Vector3d msg_force(so3_command->force.x, so3_command->force.y, so3_command->force.z);
+  //   Eigen::Vector3d msg_force_sloam_frame = vio_to_sloam_rot * msg_force;
+  //   so3_command->force.x = msg_force_sloam_frame(0);
+  //   so3_command->force.y = msg_force_sloam_frame(1);
+  //   so3_command->force.z = msg_force_sloam_frame(2);
+  //   // H_s^w = H_v^w * H_s^v
+  //   // H_v^w can get from the so3_command->orientation
+  //   Eigen::Matrix3d Hvw = quaternionToRotationMatrix(so3_command->orientation);
+  //   Eigen::Matrix3d Hsw = Hvw * sloam_to_vio_rot;
+
+  //   // convert Hsw to quaternion
+  //   Eigen::Quaterniond q(Hsw);
+  //   so3_command->orientation.x = q.x();
+  //   so3_command->orientation.y = q.y();
+  //   so3_command->orientation.z = q.z();
+  //   so3_command->orientation.w = q.w();
+  //   // apply vio_to_sloam_rot on so3_command->angular_velocity
+  //   Eigen::Vector3d msg_angular_velocity(so3_command->angular_velocity.x, so3_command->angular_velocity.y, so3_command->angular_velocity.z);
+  //   Eigen::Vector3d msg_angular_velocity_sloam_frame = vio_to_sloam_rot * msg_angular_velocity;
+  //   so3_command->angular_velocity.x = msg_angular_velocity_sloam_frame(0);
+  //   so3_command->angular_velocity.y = msg_angular_velocity_sloam_frame(1);
+  //   so3_command->angular_velocity.z = msg_angular_velocity_sloam_frame(2);
+
+  //   // use the sloam yaw in the aux
+  //   // extract yaw from rotation matrix Hvw
+  //   double c_yaw = atan2(Hvw(1,0), Hvw(0,0));
+  //   so3_command->aux.current_yaw = c_yaw;
+  //   // so3_command_pub_.publish(so3_command);
+  // }
+
+
+  // check if sloam_to_vio_odom_ is nullptr, if yes, publish so3_command directly
+  Eigen::Matrix4d Hsv;
+  if(sloam_to_vio_odom_ == nullptr)
+  {
+    ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
+    des_pos_ = Eigen::Vector3f(cmd->position.x, cmd->position.y, cmd->position.z);
+    des_vel_ = Eigen::Vector3f(cmd->velocity.x, cmd->velocity.y, cmd->velocity.z);
+    des_acc_ = Eigen::Vector3f(cmd->acceleration.x, cmd->acceleration.y, cmd->acceleration.z);
+    des_jrk_ = Eigen::Vector3f(cmd->jerk.x, cmd->jerk.y, cmd->jerk.z);
+    des_yaw_ = cmd->yaw;
+    des_yaw_dot_ = cmd->yaw_dot;  
+  }
+  else
+  {
+    ROS_INFO_THROTTLE(1, "applying sloam_to_vio_odom_ to position cmd, ONLY FOR SIMULATOR!!!");
+    // convert (*sloam_to_vio_odom_) to transformation matrix using odometryToTransformationMatrix
+    Hsv = odometryToTransformationMatrix(*sloam_to_vio_odom_);
+    // calculate vio to sloam transformation matrix, which is the inverse of Hsv
+    Eigen::Matrix4d Hvs = Hsv.inverse();
+    // apply Hvs to cmd->position
+    Eigen::Vector4d msg_position(cmd->position.x, cmd->position.y, cmd->position.z, 1);
+    Eigen::Vector4d msg_position_sloam_frame = Hvs * msg_position;
+    // assemble des_pos_ based on msg_position_sloam_frame
+    des_pos_ = Eigen::Vector3f(msg_position_sloam_frame(0), msg_position_sloam_frame(1), msg_position_sloam_frame(2));
+    // get the rotation component of Hvs as transpose of Hsv.block(0,0,3,3)
+    Eigen::Matrix3d Hsv_rot = Hsv.block(0,0,3,3);
+    Eigen::Matrix3d Hvs_rot = Hvs.block(0, 0, 3, 3);  // Hsv_rot.transpose();
+
+    // apply rotation part of Hvs to cmd->velocity
+    Eigen::Vector3d msg_velocity(cmd->velocity.x, cmd->velocity.y, cmd->velocity.z);
+    Eigen::Vector3d msg_velocity_sloam_frame = Hvs_rot * msg_velocity;
+    // assemble des_vel_ based on msg_velocity_sloam_frame
+    des_vel_ = Eigen::Vector3f(msg_velocity_sloam_frame(0), msg_velocity_sloam_frame(1), msg_velocity_sloam_frame(2));
+    // apply rotation part of Hvs to cmd->acceleration
+    Eigen::Vector3d msg_acceleration(cmd->acceleration.x, cmd->acceleration.y, cmd->acceleration.z);
+    Eigen::Vector3d msg_acceleration_sloam_frame = Hvs_rot * msg_acceleration;
+    // assemble des_acc_ based on msg_acceleration_sloam_frame
+    des_acc_ = Eigen::Vector3f(msg_acceleration_sloam_frame(0), msg_acceleration_sloam_frame(1), msg_acceleration_sloam_frame(2));
+    // apply rotation part of Hvs to cmd->jerk
+    Eigen::Vector3d msg_jerk(cmd->jerk.x, cmd->jerk.y, cmd->jerk.z);
+    Eigen::Vector3d msg_jerk_sloam_frame = Hvs_rot * msg_jerk;
+    // assemble des_jrk_ based on msg_jerk_sloam_frame
+    des_jrk_ = Eigen::Vector3f(msg_jerk_sloam_frame(0), msg_jerk_sloam_frame(1), msg_jerk_sloam_frame(2));
+    // use the yaw from by compounding Hsv_rot and cmd->yaw, which is Hsw_rot = Hvw_rot * Hsv_rot
+    Eigen::Matrix3d Hvw_rot;
+    Hvw_rot << cos(cmd->yaw), -sin(cmd->yaw), 0.0, sin(cmd->yaw), cos(cmd->yaw), 0.0, 0.0, 0.0, 1.0;
+    // Eigen::Matrix3d Hsw_rot = Hvw_rot * Hsv_rot;
+    // // extract yaw from rotation matrix Hsw_rot
+    // double c_yaw = atan2(Hsw_rot(1,0), Hsw_rot(0,0));
+    des_yaw_ = current_yaw_;
+    des_yaw_dot_ = cmd->yaw_dot;
+  }
+
+
+
 
   // Check use_msg_gains_flag to decide whether to use gains from the msg or config
   kx_[0] = (cmd->use_msg_gains_flags & cmd->USE_MSG_GAINS_POSITION_X) ? cmd->kx[0] : config_kx_[0];
@@ -139,12 +285,49 @@ void SO3ControlNodelet::position_cmd_callback(const kr_mav_msgs::PositionCommand
   kv_[1] = (cmd->use_msg_gains_flags & cmd->USE_MSG_GAINS_VELOCITY_Y) ? cmd->kv[1] : config_kv_[1];
   kv_[2] = (cmd->use_msg_gains_flags & cmd->USE_MSG_GAINS_VELOCITY_Z) ? cmd->kv[2] : config_kv_[2];
 
-  des_yaw_ = cmd->yaw;
-  des_yaw_dot_ = cmd->yaw_dot;
+
   position_cmd_updated_ = true;
   // position_cmd_init_ = true;
 
   publishSO3Command();
+}
+
+Eigen::Matrix4d SO3ControlNodelet::odometryToTransformationMatrix(const nav_msgs::Odometry &odometry_msg) {
+    // Convert quaternion to rotation matrix
+    Eigen::Matrix3d R = quaternionToRotationMatrix(odometry_msg.pose.pose.orientation);
+
+    // Get translation from Odometry message
+    Eigen::Vector3d T(odometry_msg.pose.pose.position.x, 
+                      odometry_msg.pose.pose.position.y, 
+                      odometry_msg.pose.pose.position.z);
+
+    // Create 4x4 transformation matrix from R and T
+    Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
+    
+    transformation_matrix.block<3,3>(0,0) = R;
+    transformation_matrix.block<3,1>(0,3) = T;
+
+    return transformation_matrix;
+}
+
+Eigen::Matrix3d SO3ControlNodelet::quaternionToRotationMatrix(const geometry_msgs::Quaternion &q) {
+    Eigen::Matrix3d R;
+
+    float qx = q.x;
+    float qy = q.y;
+    float qz = q.z;
+    float qw = q.w;
+
+    R(0, 0) = 1 - 2*qy*qy - 2*qz*qz;
+    R(0, 1) = 2*qx*qy - 2*qz*qw;
+    R(0, 2) = 2*qx*qz + 2*qy*qw;
+    R(1, 0) = 2*qx*qy + 2*qz*qw;
+    R(1, 1) = 1 - 2*qx*qx - 2*qz*qz;
+    R(1, 2) = 2*qy*qz - 2*qx*qw;
+    R(2, 0) = 2*qx*qz - 2*qy*qw;
+    R(2, 1) = 2*qy*qz + 2*qx*qw;
+    R(2, 2) = 1 - 2*qx*qx - 2*qy*qy;
+    return R;
 }
 
 void SO3ControlNodelet::odom_callback(const nav_msgs::Odometry::ConstPtr &odom)
@@ -153,17 +336,77 @@ void SO3ControlNodelet::odom_callback(const nav_msgs::Odometry::ConstPtr &odom)
 
   frame_id_ = odom->header.frame_id;
 
-  const Eigen::Vector3f position(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z);
-  const Eigen::Vector3f velocity(odom->twist.twist.linear.x, odom->twist.twist.linear.y, odom->twist.twist.linear.z);
 
-  current_yaw_ = tf::getYaw(odom->pose.pose.orientation);
 
-  current_orientation_ = Eigen::Quaternionf(odom->pose.pose.orientation.w, odom->pose.pose.orientation.x,
+  if(sloam_to_vio_odom_ == nullptr)
+  {
+    const Eigen::Vector3f position(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z);
+    const Eigen::Vector3f velocity(odom->twist.twist.linear.x, odom->twist.twist.linear.y, odom->twist.twist.linear.z);
+    current_yaw_ = tf::getYaw(odom->pose.pose.orientation);
+    current_orientation_ = Eigen::Quaternionf(odom->pose.pose.orientation.w, odom->pose.pose.orientation.x,
                                             odom->pose.pose.orientation.y, odom->pose.pose.orientation.z);
+    ROS_INFO_THROTTLE(1, "odomcb: sloam_to_vio_odom_ is nullptr, publish so3_command directly");
+    controller_.setPosition(position);
+    controller_.setVelocity(velocity);
+    controller_.setCurrentOrientation(current_orientation_);
+  }
+  else
+  {
+    Eigen::Matrix4d Hsv;
+    Hsv = odometryToTransformationMatrix(*sloam_to_vio_odom_);
+    // double yaw_temp = tf::getYaw(odom->pose.pose.orientation);
+    ROS_INFO_THROTTLE(1, "odomcb: applying sloam_to_vio_odom_ to position cmd, ONLY FOR SIMULATOR!!!");
 
-  controller_.setPosition(position);
-  controller_.setVelocity(velocity);
-  controller_.setCurrentOrientation(current_orientation_);
+
+
+    // convert (*sloam_to_vio_odom_) to transformation matrix using odometryToTransformationMatrix
+    Hsv = odometryToTransformationMatrix(*sloam_to_vio_odom_);
+    // calculate vio to sloam transformation matrix, which is the inverse of Hsv
+    Eigen::Matrix4d Hvs = Hsv.inverse();
+    // apply Hvs to position
+    Eigen::Vector4d msg_position(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z, 1);
+    Eigen::Vector4d msg_position_sloam_frame = Hvs * msg_position;
+
+
+    // assemble des_pos_ based on msg_position_sloam_frame
+    Eigen::Vector3f des_pos_temp = Eigen::Vector3f(msg_position_sloam_frame(0), msg_position_sloam_frame(1), msg_position_sloam_frame(2));
+
+    // get the rotation component of Hvs as transpose of Hsv.block(0,0,3,3)
+    Eigen::Matrix3d Hsv_rot = Hsv.block(0,0,3,3);
+    Eigen::Matrix3d Hvs_rot = Hvs.block(0, 0, 3, 3);  // Hsv_rot.transpose();
+
+    // apply rotation part of Hvs to velocity
+    Eigen::Vector3d msg_velocity(odom->twist.twist.linear.x, odom->twist.twist.linear.y, odom->twist.twist.linear.z);
+    Eigen::Vector3d msg_velocity_sloam_frame = Hvs_rot * msg_velocity;
+    Eigen::Vector3f des_vel_temp = Eigen::Vector3f(msg_velocity_sloam_frame(0), msg_velocity_sloam_frame(1), msg_velocity_sloam_frame(2));
+
+    // apply rotation part of Hvs to orientation
+    // convert current_orientation_temp into rotation matrix
+    //   // H_s^w = H_v^w * H_s^v
+    //   // H_v^w can get from the so3_command->orientation
+    //   Eigen::Matrix3d Hvw = quaternionToRotationMatrix(so3_command->orientation);
+    //   Eigen::Matrix3d Hsw = Hvw * sloam_to_vio_rot;
+
+    Eigen::Matrix3d Hvw_rot = quaternionToRotationMatrix(odom->pose.pose.orientation);
+    Eigen::Matrix3d Hsw_rot = Hvw_rot * Hsv_rot;
+    Eigen::Matrix3d current_orientation_temp_rot = Hvs_rot * current_orientation_temp_rot;
+
+    // // use the yaw from by compounding Hsv_rot and cmd->yaw, which is Hsw_rot = Hvw_rot * Hsv_rot
+    // Eigen::Matrix3d Hvw_rot;
+    // Hvw_rot << cos(yaw_temp), -sin(yaw_temp), 0.0, sin(yaw_temp), cos(yaw_temp), 0.0, 0.0, 0.0, 1.0;
+    // Eigen::Matrix3d Hsw_rot = Hvw_rot * Hsv_rot;
+
+    // extract yaw from rotation matrix Hsw_rot
+    current_yaw_ = atan2(Hsw_rot(1,0), Hsw_rot(0,0)); //  tf::getYaw(odom->pose.pose.orientation);
+    controller_.setPosition(des_pos_temp);
+    controller_.setVelocity(des_vel_temp);
+    // convert Hsw to quaternion
+    Eigen::Quaterniond q(Hsw_rot);
+    // convert q to Eigen::Quaternionf
+    current_orientation_ = Eigen::Quaternionf(q.w(), q.x(), q.y(), q.z());
+    controller_.setCurrentOrientation(current_orientation_);
+  }
+
 
   if(position_cmd_init_)
   {
@@ -172,8 +415,10 @@ void SO3ControlNodelet::odom_callback(const nav_msgs::Odometry::ConstPtr &odom)
     // message would follow an odom message. If not, the position_cmd_callback
     // hasn't been called and we publish the so3 command ourselves
     // TODO: Fallback to hover if position_cmd hasn't been received for some time
-    if(!position_cmd_updated_)
-      publishSO3Command();
+    if(!position_cmd_updated_){
+      ROS_ERROR("publishing so3 command from odom callback");
+     publishSO3Command();
+    }
     position_cmd_updated_ = false;
   }
 }
@@ -370,6 +615,9 @@ void SO3ControlNodelet::onInit(void)
                                          ros::TransportHints().tcpNoDelay());
   corrections_sub_ = priv_nh.subscribe("corrections", 10, &SO3ControlNodelet::corrections_callback, this,
                                        ros::TransportHints().tcpNoDelay());
+
+  sloam_to_vio_odom_sub_ = priv_nh.subscribe("/factor_graph_atl/quadrotor/sloam_to_vio_odom_fake", 1, &SO3ControlNodelet::sloamToVioCallback_, this);
+
 }
 
 #include <pluginlib/class_list_macros.h>
