@@ -39,11 +39,13 @@ class SO3ControlNodelet : public nodelet::Nodelet
   void publishSO3Command();
   void position_cmd_callback(const kr_mav_msgs::PositionCommand::ConstPtr &cmd);
   void odom_callback(const nav_msgs::Odometry::ConstPtr &odom);
+  void gt_odom_callback(const nav_msgs::Odometry::ConstPtr &odom);
   void enable_motors_callback(const std_msgs::Bool::ConstPtr &msg);
   void corrections_callback(const kr_mav_msgs::Corrections::ConstPtr &msg);
   void cfg_callback(kr_mav_controllers::SO3Config &config, uint32_t level);
   // initialize sloam_to_vio_odom_ to nullptr
   nav_msgs::OdometryConstPtr sloam_to_vio_odom_  = nullptr;
+  nav_msgs::OdometryConstPtr gt_odom_ = nullptr;
 
   // Active SLAM thing:
   Eigen::Matrix4d odometryToTransformationMatrix(
@@ -54,7 +56,7 @@ class SO3ControlNodelet : public nodelet::Nodelet
 
   SO3Control controller_;
   ros::Publisher so3_command_pub_, command_viz_pub_;
-  ros::Subscriber odom_sub_, position_cmd_sub_, enable_motors_sub_, corrections_sub_, sloam_to_vio_odom_sub_;
+  ros::Subscriber odom_sub_, gt_odom_sub_, position_cmd_sub_, enable_motors_sub_, corrections_sub_, sloam_to_vio_odom_sub_;
 
   bool position_cmd_updated_, position_cmd_init_;
   std::string frame_id_;
@@ -122,10 +124,10 @@ void SO3ControlNodelet::publishSO3Command()
 
 
   // // check if sloam_to_vio_odom_ is nullptr, if yes, publish so3_command directly
-  // if (sloam_to_vio_odom_ == nullptr) {
-  //   ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
-  // } else{ 
-  //   Eigen::Matrix3d sloam_to_vio_rot = quaternionToRotationMatrix((*sloam_to_vio_odom_).pose.pose.orientation);
+  if (sloam_to_vio_odom_ == nullptr) {
+    ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
+  } else{ 
+    Eigen::Matrix3d sloam_to_vio_rot = quaternionToRotationMatrix((*sloam_to_vio_odom_).pose.pose.orientation);
   //   // calculate vio_to_sloam_rot
   //   Eigen::Matrix3d vio_to_sloam_rot = sloam_to_vio_rot.transpose();
     
@@ -137,8 +139,8 @@ void SO3ControlNodelet::publishSO3Command()
   //   so3_command->force.z = msg_force_sloam_frame(2);
   //   // H_s^w = H_v^w * H_s^v
   //   // H_v^w can get from the so3_command->orientation
-  //   Eigen::Matrix3d Hvw = quaternionToRotationMatrix(so3_command->orientation);
-  //   Eigen::Matrix3d Hsw = Hvw * sloam_to_vio_rot;
+    // Eigen::Matrix3d Hvw = quaternionToRotationMatrix(so3_command->orientation);
+    // Eigen::Matrix3d Hsw = Hvw * sloam_to_vio_rot;
 
   //   // convert Hsw to quaternion
   //   Eigen::Quaterniond q(Hsw);
@@ -153,12 +155,15 @@ void SO3ControlNodelet::publishSO3Command()
   //   so3_command->angular_velocity.y = msg_angular_velocity_sloam_frame(1);
   //   so3_command->angular_velocity.z = msg_angular_velocity_sloam_frame(2);
 
-  //   // use the sloam yaw in the aux
-  //   // extract yaw from rotation matrix Hvw
-  //   double c_yaw = atan2(Hvw(1,0), Hvw(0,0));
-  //   so3_command->aux.current_yaw = current_yaw_;
-  //   // so3_command_pub_.publish(so3_command);
-  // }
+    // use the sloam yaw in the aux
+    Eigen::Matrix3d H_gt = quaternionToRotationMatrix(gt_odom_->pose.pose.orientation);
+    double c_yaw = atan2(H_gt(1,0), H_gt(0,0));
+    so3_command->aux.current_yaw = c_yaw;
+    printf("c_yaw: %f\n", c_yaw);
+    printf("current_yaw_: %f\n", current_yaw_);
+    printf("des_yaw_: %f\n", des_yaw_);
+    // so3_command_pub_.publish(so3_command);
+  }
   so3_command_pub_.publish(so3_command);
 
   geometry_msgs::PoseStamped::Ptr cmd_viz_msg = boost::make_shared<geometry_msgs::PoseStamped>();
@@ -176,6 +181,11 @@ void SO3ControlNodelet::publishSO3Command()
 void SO3ControlNodelet::sloamToVioCallback_(const nav_msgs::OdometryConstPtr &msg)
 {
   sloam_to_vio_odom_ = msg;
+}
+
+void SO3ControlNodelet::gt_odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
+{
+  gt_odom_ = msg;
 }
 
 void SO3ControlNodelet::position_cmd_callback(const kr_mav_msgs::PositionCommand::ConstPtr &cmd)
@@ -223,7 +233,7 @@ void SO3ControlNodelet::position_cmd_callback(const kr_mav_msgs::PositionCommand
 
   // check if sloam_to_vio_odom_ is nullptr, if yes, publish so3_command directly
   Eigen::Matrix4d Hsv;
-  if(sloam_to_vio_odom_ == nullptr)
+  if(true)//sloam_to_vio_odom_ == nullptr)
   {
     ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
     des_pos_ = Eigen::Vector3f(cmd->position.x, cmd->position.y, cmd->position.z);
@@ -338,7 +348,7 @@ void SO3ControlNodelet::odom_callback(const nav_msgs::Odometry::ConstPtr &odom)
 
 
 
-  if(sloam_to_vio_odom_ == nullptr)
+  if(true)//sloam_to_vio_odom_ == nullptr)
   {
     const Eigen::Vector3f position(odom->pose.pose.position.x, odom->pose.pose.position.y, odom->pose.pose.position.z);
     const Eigen::Vector3f velocity(odom->twist.twist.linear.x, odom->twist.twist.linear.y, odom->twist.twist.linear.z);
@@ -617,6 +627,8 @@ void SO3ControlNodelet::onInit(void)
                                        ros::TransportHints().tcpNoDelay());
 
   sloam_to_vio_odom_sub_ = priv_nh.subscribe("/factor_graph_atl/quadrotor/sloam_to_vio_odom_fake", 1, &SO3ControlNodelet::sloamToVioCallback_, this);
+  gt_odom_sub_ = 
+      priv_nh.subscribe("/ddk/ground_truth/odom", 10, &SO3ControlNodelet::gt_odom_callback, this, ros::TransportHints().tcpNoDelay());
 
 }
 
