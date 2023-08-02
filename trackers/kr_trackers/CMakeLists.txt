@@ -6,7 +6,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo)
 endif()
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 add_compile_options(-Wall)
@@ -39,12 +39,11 @@ catkin_package(
   kr_trackers_manager
   DEPENDS
   EIGEN3)
-
 add_library(
   ${PROJECT_NAME}
+  src/stopping_policy.cpp
   src/initial_conditions.cpp
   src/circle_tracker_server.cpp
-  src/initial_conditions.cpp
   src/line_tracker_distance_server.cpp
   src/line_tracker_min_jerk_server.cpp
   # src/line_tracker_trapezoid.cpp

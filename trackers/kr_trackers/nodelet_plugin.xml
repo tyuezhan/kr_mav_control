@@ -75,4 +75,9 @@
   </class>
 -->
 
+<class name="kr_trackers/StoppingPolicy" type="StoppingPolicy" base_class_type="kr_trackers_manager::Tracker">
+  <description>
+    This is a controller which detects when the robot is in free fall and stablelizes out of it.
+  </description>
+</class>
 </library>

@@ -23,3 +23,8 @@ lissajous_tracker:
 
 lissajous_adder:
   frame_id: simulator
+
+
+stopping_policy:
+  default_a_des: 1.0
+  default_j_des: 2.0
