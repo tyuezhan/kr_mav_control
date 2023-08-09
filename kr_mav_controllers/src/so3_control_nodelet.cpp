@@ -40,12 +40,14 @@ class SO3ControlNodelet : public nodelet::Nodelet
   void position_cmd_callback(const kr_mav_msgs::PositionCommand::ConstPtr &cmd);
   void odom_callback(const nav_msgs::Odometry::ConstPtr &odom);
   void gt_odom_callback(const nav_msgs::Odometry::ConstPtr &odom);
+  void perturbed_odom_callback(const nav_msgs::Odometry::ConstPtr &odom);
   void enable_motors_callback(const std_msgs::Bool::ConstPtr &msg);
   void corrections_callback(const kr_mav_msgs::Corrections::ConstPtr &msg);
   void cfg_callback(kr_mav_controllers::SO3Config &config, uint32_t level);
   // initialize sloam_to_vio_odom_ to nullptr
   nav_msgs::OdometryConstPtr sloam_to_vio_odom_  = nullptr;
   nav_msgs::OdometryConstPtr gt_odom_ = nullptr;
+  nav_msgs::OdometryConstPtr perturbed_odom_ = nullptr;
 
   // Active SLAM thing:
   Eigen::Matrix4d odometryToTransformationMatrix(
@@ -56,7 +58,7 @@ class SO3ControlNodelet : public nodelet::Nodelet
 
   SO3Control controller_;
   ros::Publisher so3_command_pub_, command_viz_pub_;
-  ros::Subscriber odom_sub_, gt_odom_sub_, position_cmd_sub_, enable_motors_sub_, corrections_sub_, sloam_to_vio_odom_sub_;
+  ros::Subscriber odom_sub_, gt_odom_sub_, perturbed_odom_sub_, position_cmd_sub_, enable_motors_sub_, corrections_sub_, sloam_to_vio_odom_sub_;
 
   bool position_cmd_updated_, position_cmd_init_;
   std::string frame_id_;
@@ -103,10 +105,6 @@ void SO3ControlNodelet::publishSO3Command()
   so3_command->force.x = force(0);
   so3_command->force.y = force(1);
   so3_command->force.z = force(2);
-  so3_command->orientation.x = orientation.x();
-  so3_command->orientation.y = orientation.y();
-  so3_command->orientation.z = orientation.z();
-  so3_command->orientation.w = orientation.w();
   so3_command->angular_velocity.x = ang_vel(0);
   so3_command->angular_velocity.y = ang_vel(1);
   so3_command->angular_velocity.z = ang_vel(2);
@@ -122,10 +120,16 @@ void SO3ControlNodelet::publishSO3Command()
   so3_command->aux.enable_motors = enable_motors_;
   so3_command->aux.use_external_yaw = use_external_yaw_;
 
+  Eigen::Quaternionf orientation_transformed = orientation;
 
   // // check if sloam_to_vio_odom_ is nullptr, if yes, publish so3_command directly
-  if (sloam_to_vio_odom_ == nullptr) {
+  if (true){//(sloam_to_vio_odom_ == nullptr) {
     ROS_INFO_THROTTLE(1, "sloam_to_vio_odom_ is nullptr, publish so3_command directly");
+    so3_command->orientation.x = orientation.x();
+    so3_command->orientation.y = orientation.y();
+    so3_command->orientation.z = orientation.z();
+    so3_command->orientation.w = orientation.w();
+
   } else{ 
     Eigen::Matrix3d sloam_to_vio_rot = quaternionToRotationMatrix((*sloam_to_vio_odom_).pose.pose.orientation);
   //   // calculate vio_to_sloam_rot
@@ -156,14 +160,55 @@ void SO3ControlNodelet::publishSO3Command()
   //   so3_command->angular_velocity.z = msg_angular_velocity_sloam_frame(2);
 
     // use the sloam yaw in the aux
-    Eigen::Matrix3d H_gt = quaternionToRotationMatrix(gt_odom_->pose.pose.orientation);
-    double c_yaw = atan2(H_gt(1,0), H_gt(0,0));
-    so3_command->aux.current_yaw = c_yaw;
-    printf("c_yaw: %f\n", c_yaw);
-    printf("current_yaw_: %f\n", current_yaw_);
-    printf("des_yaw_: %f\n", des_yaw_);
-    // so3_command_pub_.publish(so3_command);
+    // check if either gt_odom_ or perturbed_odom_ is nullptr, if yes, set them as 3x3 identity matrix
+    Eigen::Matrix3d H_gt;
+    Eigen::Matrix3d H_perturbed;
+    if(gt_odom_ == nullptr || perturbed_odom_ == nullptr)
+    {
+      ROS_ERROR("gt_odom_ or perturbed_odom_ is nullptr, maybe because not running simulation or not subscribing to the right topic, set it as 3x3 identity matrix");
+      H_gt = Eigen::Matrix3d::Identity();
+      H_perturbed = Eigen::Matrix3d::Identity();
+    }
+    else
+    {
+      H_gt = quaternionToRotationMatrix(gt_odom_->pose.pose.orientation);
+      H_perturbed = quaternionToRotationMatrix(perturbed_odom_->pose.pose.orientation);
+    }
+
+    // calculate a TF from perturbed to ground truth to transform the desired orientation to the frame that Gazebo operates in
+    // extract RPY's
+    // create only yaw tf:Quaternions
+    double ground_truth_yaw = atan2(H_gt(1,0), H_gt(0,0));
+    double odom_yaw = atan2(H_perturbed(1,0), H_perturbed(0,0));
+
+    tf::Quaternion ground_truth_tf_yaw;
+    tf::Quaternion odom_tf_yaw;
+    ground_truth_tf_yaw.setRPY(0.0, 0.0, ground_truth_yaw);
+    odom_tf_yaw.setRPY(0.0, 0.0, odom_yaw);
+    const tf::Quaternion tf_gt_odom_yaw =  odom_tf_yaw * ground_truth_tf_yaw.inverse();
+
+    // ROS INFO the difference between ground_truth_yaw and odom_yaw in 2 decimal digits
+    ROS_INFO_THROTTLE(1, "ground_truth_yaw: %.2f, odom_yaw: %.2f, diff: %.2f", ground_truth_yaw, odom_yaw, ground_truth_yaw - odom_yaw);
+    
+
+    // transform!
+    orientation_transformed = Eigen::Quaternionf(tf_gt_odom_yaw.w(), tf_gt_odom_yaw.x(),
+                          tf_gt_odom_yaw.y(), tf_gt_odom_yaw.z()) *
+        orientation;
+    
+
+    so3_command->orientation.x = orientation_transformed.x();
+    so3_command->orientation.y = orientation_transformed.y();
+    so3_command->orientation.z = orientation_transformed.z();
+    so3_command->orientation.w = orientation_transformed.w();
+
+    // double c_yaw = atan2(H_gt(1,0), H_gt(0,0));
+    // so3_command->aux.current_yaw = c_yaw;
+    // printf("c_yaw: %f\n", c_yaw);
+    // printf("current_yaw_: %f\n", current_yaw_);
+    // printf("des_yaw_: %f\n", des_yaw_);
   }
+
   so3_command_pub_.publish(so3_command);
 
   geometry_msgs::PoseStamped::Ptr cmd_viz_msg = boost::make_shared<geometry_msgs::PoseStamped>();
@@ -171,10 +216,10 @@ void SO3ControlNodelet::publishSO3Command()
   cmd_viz_msg->pose.position.x = des_pos_(0);
   cmd_viz_msg->pose.position.y = des_pos_(1);
   cmd_viz_msg->pose.position.z = des_pos_(2);
-  cmd_viz_msg->pose.orientation.x = orientation.x();
-  cmd_viz_msg->pose.orientation.y = orientation.y();
-  cmd_viz_msg->pose.orientation.z = orientation.z();
-  cmd_viz_msg->pose.orientation.w = orientation.w();
+  cmd_viz_msg->pose.orientation.x = orientation_transformed.x();
+  cmd_viz_msg->pose.orientation.y = orientation_transformed.y();
+  cmd_viz_msg->pose.orientation.z = orientation_transformed.z();
+  cmd_viz_msg->pose.orientation.w = orientation_transformed.w();
   command_viz_pub_.publish(cmd_viz_msg);
 }
 
@@ -186,6 +231,11 @@ void SO3ControlNodelet::sloamToVioCallback_(const nav_msgs::OdometryConstPtr &ms
 void SO3ControlNodelet::gt_odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
 {
   gt_odom_ = msg;
+}
+
+void SO3ControlNodelet::perturbed_odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
+{
+  perturbed_odom_ = msg;
 }
 
 void SO3ControlNodelet::position_cmd_callback(const kr_mav_msgs::PositionCommand::ConstPtr &cmd)
@@ -617,8 +667,12 @@ void SO3ControlNodelet::onInit(void)
   so3_command_pub_ = priv_nh.advertise<kr_mav_msgs::SO3Command>("so3_cmd", 10);
   command_viz_pub_ = priv_nh.advertise<geometry_msgs::PoseStamped>("cmd_viz", 10);
 
-  odom_sub_ =
-      priv_nh.subscribe("odom", 10, &SO3ControlNodelet::odom_callback, this, ros::TransportHints().tcpNoDelay());
+  gt_odom_sub_ = 
+      priv_nh.subscribe("/ddk/ground_truth/odom", 10, &SO3ControlNodelet::gt_odom_callback, this, ros::TransportHints().tcpNoDelay());
+  perturbed_odom_sub_ = 
+      priv_nh.subscribe("/gt_odom_perturbed", 10, &SO3ControlNodelet::perturbed_odom_callback, this, ros::TransportHints().tcpNoDelay());
+
+  odom_sub_ = priv_nh.subscribe("odom", 10, &SO3ControlNodelet::odom_callback, this, ros::TransportHints().tcpNoDelay());
   position_cmd_sub_ = priv_nh.subscribe("position_cmd", 10, &SO3ControlNodelet::position_cmd_callback, this,
                                         ros::TransportHints().tcpNoDelay());
   enable_motors_sub_ = priv_nh.subscribe("motors", 2, &SO3ControlNodelet::enable_motors_callback, this,
@@ -627,8 +681,7 @@ void SO3ControlNodelet::onInit(void)
                                        ros::TransportHints().tcpNoDelay());
 
   sloam_to_vio_odom_sub_ = priv_nh.subscribe("/factor_graph_atl/quadrotor/sloam_to_vio_odom_fake", 1, &SO3ControlNodelet::sloamToVioCallback_, this);
-  gt_odom_sub_ = 
-      priv_nh.subscribe("/ddk/ground_truth/odom", 10, &SO3ControlNodelet::gt_odom_callback, this, ros::TransportHints().tcpNoDelay());
+
 
 }
 
