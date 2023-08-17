@@ -104,7 +104,6 @@ MAVManager::MAVManager(std::string ns)
   heartbeat_sub_ = nh_.subscribe("heartbeat", 10, &MAVManager::heartbeat_cb, this, ros::TransportHints().tcpNoDelay());
   tracker_status_sub_ = nh_.subscribe("trackers_manager/status", 10, &MAVManager::tracker_status_cb, this,
                                       ros::TransportHints().tcpNoDelay());
-  sloam_to_vio_odom_sub_ = nh_.subscribe("/factor_graph_atl/quadrotor/sloam_to_vio_odom_fake", 1, &MAVManager::sloamToVioCallback_, this);
 
   // Services
   srv_transition_ = nh_.serviceClient<kr_tracker_msgs::Transition>("trackers_manager/transition");
@@ -436,8 +435,6 @@ bool MAVManager::lissajous(float x_amp, float y_amp, float z_amp, float yaw_amp,
   return this->transition(lissajous_tracker_str);
 }
 
-
-
 bool MAVManager::compound_lissajous(float x_amp[2], float y_amp[2], float z_amp[2], float yaw_amp[2],
                                     float x_num_periods[2], float y_num_periods[2], float z_num_periods[2],
                                     float yaw_num_periods[2], float period[2], float num_cycles[2], float ramp_time[2])
@@ -544,7 +541,6 @@ bool MAVManager::setPositionCommand(const kr_mav_msgs::PositionCommand &msg)
   }
 }
 
-
 bool MAVManager::setSO3Command(const kr_mav_msgs::SO3Command &msg)
 {
   // Note: To enable motors, the motors method must be used
@@ -560,85 +556,10 @@ bool MAVManager::setSO3Command(const kr_mav_msgs::SO3Command &msg)
   if(active_tracker_.compare(null_tracker_str) != 0)
     flag = this->transition(null_tracker_str);
 
-  if(flag){
+  if(flag)
     pub_so3_command_.publish(msg);
-    // kr_mav_msgs::SO3Command msg_sloam_frame = msg;
-    // // apply transform from sloam_to_vio_odom_ to msg
-
-    // Eigen::Matrix3d sloam_to_vio_rot = quaternionToRotationMatrix((*sloam_to_vio_odom_).pose.pose.orientation);
-
-    // // calculate vio_to_sloam_rot
-    // Eigen::Matrix3d vio_to_sloam_rot = sloam_to_vio_rot.transpose();
-    
-    // // apply vio_to_sloam_rot on msg.force
-    // Eigen::Vector3d msg_force(msg.force.x, msg.force.y, msg.force.z);
-    // Eigen::Vector3d msg_force_sloam_frame = vio_to_sloam_rot * msg_force;
-    // msg_sloam_frame.force.x = msg_force_sloam_frame(0);
-    // msg_sloam_frame.force.y = msg_force_sloam_frame(1);
-    // msg_sloam_frame.force.z = msg_force_sloam_frame(2);
-    // // H_s^w = H_v^w * H_s^v
-    // // H_v^w can get from the msg.orientation
-    // Eigen::Matrix3d Hvw = quaternionToRotationMatrix(msg.orientation);
-    // Eigen::Matrix3d Hsw = Hvw * sloam_to_vio_rot;
-    // // convert Hsw to quaternion
-    // Eigen::Quaterniond q(Hsw);
-    // msg_sloam_frame.orientation.x = q.x();
-    // msg_sloam_frame.orientation.y = q.y();
-    // msg_sloam_frame.orientation.z = q.z();
-    // msg_sloam_frame.orientation.w = q.w();
-    // // apply vio_to_sloam_rot on msg.angular_velocity
-    // Eigen::Vector3d msg_angular_velocity(msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z);
-    // Eigen::Vector3d msg_angular_velocity_sloam_frame = vio_to_sloam_rot * msg_angular_velocity;
-    // msg_sloam_frame.angular_velocity.x = msg_angular_velocity_sloam_frame(0);
-    // msg_sloam_frame.angular_velocity.y = msg_angular_velocity_sloam_frame(1);
-    // msg_sloam_frame.angular_velocity.z = msg_angular_velocity_sloam_frame(2);
-    // // use the sloam yaw in the aux
-    // // extract yaw from rotation matrix Hvw
-    // double c_yaw = atan2(Hvw(1,0), Hvw(0,0));
-    // msg_sloam_frame.aux.current_yaw = c_yaw;
-    // pub_so3_command_.publish(msg_sloam_frame);
-  }
 
   return flag;
-}
-
-
-Eigen::Matrix4d MAVManager::odometryToTransformationMatrix(const nav_msgs::Odometry &odometry_msg) {
-    // Convert quaternion to rotation matrix
-    Eigen::Matrix3d R = quaternionToRotationMatrix(odometry_msg.pose.pose.orientation);
-
-    // Get translation from Odometry message
-    Eigen::Vector3d T(odometry_msg.pose.pose.position.x, 
-                      odometry_msg.pose.pose.position.y, 
-                      odometry_msg.pose.pose.position.z);
-
-    // Create 4x4 transformation matrix from R and T
-    Eigen::Matrix4d transformation_matrix = Eigen::Matrix4d::Identity();
-    
-    transformation_matrix.block<3,3>(0,0) = R;
-    transformation_matrix.block<3,1>(0,3) = T;
-
-    return transformation_matrix;
-}
-
-Eigen::Matrix3d MAVManager::quaternionToRotationMatrix(const geometry_msgs::Quaternion &q) {
-    Eigen::Matrix3d R;
-
-    float qx = q.x;
-    float qy = q.y;
-    float qz = q.z;
-    float qw = q.w;
-
-    R(0, 0) = 1 - 2*qy*qy - 2*qz*qz;
-    R(0, 1) = 2*qx*qy - 2*qz*qw;
-    R(0, 2) = 2*qx*qz + 2*qy*qw;
-    R(1, 0) = 2*qx*qy + 2*qz*qw;
-    R(1, 1) = 1 - 2*qx*qx - 2*qz*qz;
-    R(1, 2) = 2*qy*qz - 2*qx*qw;
-    R(2, 0) = 2*qx*qz - 2*qy*qw;
-    R(2, 1) = 2*qy*qz + 2*qx*qw;
-    R(2, 2) = 1 - 2*qx*qx - 2*qy*qy;
-    return R;
 }
 
 bool MAVManager::setTRPYCommand(const kr_mav_msgs::TRPYCommand &msg)
@@ -729,13 +650,6 @@ bool MAVManager::set_motors(bool motors)
   status_ = motors_ ? IDLE : MOTORS_OFF;
   return true;
 }
-
-
-void MAVManager::sloamToVioCallback_(const nav_msgs::OdometryConstPtr &msg)
-{
-  sloam_to_vio_odom_ = msg;
-}
-
 
 void MAVManager::imu_cb(const sensor_msgs::Imu::ConstPtr &msg)
 {

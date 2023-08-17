@@ -24,7 +24,6 @@
 #include <kr_tracker_msgs/LissajousTrackerAction.h>
 #include <kr_tracker_msgs/TrackerStatus.h>
 #include <kr_tracker_msgs/PolyTrackerAction.h>
-#include <geometry_msgs/Quaternion.h>
 
 
 namespace kr_mav_manager
@@ -125,13 +124,6 @@ class MAVManager
 
   bool transition(const std::string &tracker_str);
 
-  // Active SLAM thing:
-  Eigen::Matrix4d odometryToTransformationMatrix(
-      const nav_msgs::Odometry &odometry_msg);
-  Eigen::Matrix3d quaternionToRotationMatrix(const geometry_msgs::Quaternion &q);
-  void sloamToVioCallback_(const nav_msgs::OdometryConstPtr &msg);
-
-
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW;
 
  private:
@@ -198,13 +190,10 @@ class MAVManager
       pub_position_command_, pub_status_, pub_pwm_command_;
 
   // Subscribers
-  ros::Subscriber odom_sub_, imu_sub_, output_data_sub_, heartbeat_sub_, tracker_status_sub_, sloam_to_vio_odom_sub_;
+  ros::Subscriber odom_sub_, imu_sub_, output_data_sub_, heartbeat_sub_, tracker_status_sub_;
 
   // Services
   ros::ServiceClient srv_transition_;
-
-  nav_msgs::OdometryConstPtr sloam_to_vio_odom_;
-
 };
 
 }  // namespace kr_mav_manager
