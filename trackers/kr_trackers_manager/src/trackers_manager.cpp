@@ -96,6 +96,38 @@ void TrackersManager::odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
   for(it = tracker_map_.begin(); it != tracker_map_.end(); it++)
   {
     if(it->second == active_tracker_)
+
+
+      //     // if cmd position is too different from msg position, if yes, print error msg and set cmd to be the odometry position with 0 velocity
+      // double distance_squared = std::pow((cmd_->position.x - msg->pose.pose.position.x),2) + std::pow((cmd_->position.y - msg->pose.pose.position.y),2) + std::pow((cmd_->position.z - msg->pose.pose.position.z),2);
+      // if (distance_squared > 1.0){
+      //   kr_mav_msgs::PositionCommand::Ptr new_cmd_(new kr_mav_msgs::PositionCommand);
+
+      //   new_cmd_->position.x = msg->pose.pose.position.x;
+      //   new_cmd_->position.y = msg->pose.pose.position.y;
+      //   new_cmd_->position.z = msg->pose.pose.position.z;
+      //   new_cmd_->velocity.x = 0.0;
+      //   new_cmd_->velocity.y = 0.0;
+      //   new_cmd_->velocity.z = 0.0;
+      //   new_cmd_->acceleration.x = 0.0;
+      //   new_cmd_->acceleration.y = 0.0;
+      //   new_cmd_->acceleration.z = 0.0;
+
+      //   new_cmd_->header.frame_id = cmd_->header.frame_id;
+      //   new_cmd_->header.stamp = cmd_->header.stamp;
+      //   new_cmd_->yaw = cmd_->yaw;
+      //   new_cmd_->yaw_dot = 0.0;
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
+      //   pub_cmd_.publish(new_cmd_);
+      // } else if(cmd_ != NULL){
+      //     pub_cmd_.publish(cmd_);
+      // }
     {
       cmd_ = it->second->update(msg);
       if(cmd_ != NULL)
