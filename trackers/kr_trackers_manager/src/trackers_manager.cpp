@@ -17,6 +17,13 @@ class TrackersManager : public nodelet::Nodelet
  private:
   void odom_callback(const nav_msgs::Odometry::ConstPtr &msg);
   bool transition_callback(kr_tracker_msgs::Transition::Request &req, kr_tracker_msgs::Transition::Response &res);
+  // initialize last_cmd_ to be null 
+  kr_mav_msgs::PositionCommand last_cmd_;
+  bool last_cmd_initialized_ = false;
+  //(new kr_mav_msgs::PositionCommand);
+  bool critical_safety_entered_ = false;
+  bool no_stopping_policy_ = false;
+  
 
   ros::Subscriber sub_odom_;
   ros::Publisher pub_cmd_, pub_status_;
@@ -92,46 +99,143 @@ void TrackersManager::onInit(void)
 
 void TrackersManager::odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
 {
+  if (no_stopping_policy_){
+    // initialize with empty command
+    kr_mav_msgs::PositionCommand new_cmd_temp = kr_mav_msgs::PositionCommand();
+    ROS_ERROR_THROTTLE(0.1,"+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+    ROS_ERROR_THROTTLE(0.1,"VERY UNSAFE SCENARIO, EVEN STOPPING POLICY FAIL TO OUTPUT SAFE COMMAND, PLEASE MANUALLY TAKE OVER!!!");
+    ROS_ERROR_THROTTLE(0.1,"VERY UNSAFE SCENARIO, EVEN STOPPING POLICY FAIL TO OUTPUT SAFE COMMAND, PLEASE MANUALLY TAKE OVER!!!");
+    ROS_ERROR_THROTTLE(0.1,"VERY UNSAFE SCENARIO, EVEN STOPPING POLICY FAIL TO OUTPUT SAFE COMMAND, PLEASE MANUALLY TAKE OVER!!!");
+    ROS_ERROR_STREAM_THROTTLE(0.1,"no_stopping_policy_: " << no_stopping_policy_);
+    ROS_ERROR_THROTTLE(0.1,"+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+    new_cmd_temp.position.x = msg->pose.pose.position.x;
+    new_cmd_temp.position.y = msg->pose.pose.position.y;
+    new_cmd_temp.position.z = msg->pose.pose.position.z;
+    new_cmd_temp.velocity.x = 0.0;
+    new_cmd_temp.velocity.y = 0.0;
+    new_cmd_temp.velocity.z = 0.0;
+    new_cmd_temp.acceleration.x = 0.0;
+    new_cmd_temp.acceleration.y = 0.0;
+    new_cmd_temp.acceleration.z = 0.0;
+
+    new_cmd_temp.header.frame_id = cmd_->header.frame_id;
+    new_cmd_temp.header.stamp = cmd_->header.stamp;
+    if(last_cmd_initialized_){
+      new_cmd_temp.yaw = last_cmd_.yaw;
+    } else {
+      new_cmd_temp.yaw = 0.0;
+    }
+    new_cmd_temp.yaw_dot = 0.0;
+    
+    pub_cmd_.publish(new_cmd_temp);
+    // copy cmd_ to last_cmd_
+    last_cmd_initialized_ = true;
+    last_cmd_ = new_cmd_temp;
+    return;
+  }
+
   std::map<std::string, kr_trackers_manager::Tracker *>::iterator it;
+  
   for(it = tracker_map_.begin(); it != tracker_map_.end(); it++)
   {
     if(it->second == active_tracker_)
-
-
-      //     // if cmd position is too different from msg position, if yes, print error msg and set cmd to be the odometry position with 0 velocity
-      // double distance_squared = std::pow((cmd_->position.x - msg->pose.pose.position.x),2) + std::pow((cmd_->position.y - msg->pose.pose.position.y),2) + std::pow((cmd_->position.z - msg->pose.pose.position.z),2);
-      // if (distance_squared > 1.0){
-      //   kr_mav_msgs::PositionCommand::Ptr new_cmd_(new kr_mav_msgs::PositionCommand);
-
-      //   new_cmd_->position.x = msg->pose.pose.position.x;
-      //   new_cmd_->position.y = msg->pose.pose.position.y;
-      //   new_cmd_->position.z = msg->pose.pose.position.z;
-      //   new_cmd_->velocity.x = 0.0;
-      //   new_cmd_->velocity.y = 0.0;
-      //   new_cmd_->velocity.z = 0.0;
-      //   new_cmd_->acceleration.x = 0.0;
-      //   new_cmd_->acceleration.y = 0.0;
-      //   new_cmd_->acceleration.z = 0.0;
-
-      //   new_cmd_->header.frame_id = cmd_->header.frame_id;
-      //   new_cmd_->header.stamp = cmd_->header.stamp;
-      //   new_cmd_->yaw = cmd_->yaw;
-      //   new_cmd_->yaw_dot = 0.0;
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   ROS_ERROR_THROTTLE(1, "CRITICAL ERROR!!! Position cmd is too far from current odometry!!!!!!!");
-      //   pub_cmd_.publish(new_cmd_);
-      // } else if(cmd_ != NULL){
-      //     pub_cmd_.publish(cmd_);
-      // }
     {
       cmd_ = it->second->update(msg);
-      if(cmd_ != NULL)
-        pub_cmd_.publish(cmd_);
+      if (cmd_ != NULL){
+        // if cmd position is too different from msg position, if yes, print error msg and set cmd to be the odometry position with 0 velocity
+        double distance_squared = std::pow((cmd_->position.x - msg->pose.pose.position.x),2) + std::pow((cmd_->position.y - msg->pose.pose.position.y),2) + std::pow((cmd_->position.z - msg->pose.pose.position.z),2);
+        if (last_cmd_initialized_ && distance_squared > 1.0){
+          ROS_ERROR("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+          ROS_ERROR_STREAM("UNSAFE!!! CALLING STOPPING POLICY! cmd position is too different from odom position, distance_squared: " << distance_squared);
+          ROS_ERROR_STREAM("UNSAFE!!! CALLING STOPPING POLICY! cmd position is too different from odom position, distance_squared: " << distance_squared);
+          ROS_ERROR_STREAM("UNSAFE!!! CALLING STOPPING POLICY! cmd position is too different from odom position, distance_squared: " << distance_squared);
+          ROS_ERROR_STREAM("UNSAFE!!! CALLING STOPPING POLICY! cmd position is too different from odom position, distance_squared: " << distance_squared);
+          ROS_ERROR("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+          if (!critical_safety_entered_){
+            critical_safety_entered_ = true;
+            // transit to stopping policy with position from odometry and velocity and accelearation from last_cmd 
+            
+            const std::map<std::string, kr_trackers_manager::Tracker *>::iterator it2 = tracker_map_.find("kr_trackers/StoppingPolicy");
+            if(it2 == tracker_map_.end()) {
+              ROS_ERROR("Failed to find stopping policy!!!!!!!!");
+              ROS_ERROR("Failed to find stopping policy!!!!!!!!");
+              ROS_ERROR("Failed to find stopping policy!!!!!!!!");
+              no_stopping_policy_ = true;
+              continue;
+            }
+            // Compose new command
+            
+            kr_mav_msgs::PositionCommand new_cmd = kr_mav_msgs::PositionCommand();
+            new_cmd.position.x = msg->pose.pose.position.x;
+            new_cmd.position.y = msg->pose.pose.position.y;
+            new_cmd.position.z = msg->pose.pose.position.z;
+            new_cmd.velocity.x = last_cmd_.velocity.x;
+            new_cmd.velocity.y = last_cmd_.velocity.y;
+            new_cmd.velocity.z = last_cmd_.velocity.z;
+            new_cmd.acceleration.x = last_cmd_.acceleration.x;
+            new_cmd.acceleration.y = last_cmd_.acceleration.y;
+            new_cmd.acceleration.z = last_cmd_.acceleration.z;
+            new_cmd.yaw = last_cmd_.yaw;
+            new_cmd.yaw_dot = last_cmd_.yaw_dot;
+            
+            new_cmd.header.frame_id = cmd_->header.frame_id;
+            new_cmd.header.stamp = cmd_->header.stamp;
+            // make new_cmd constptr for activate function
+            kr_mav_msgs::PositionCommand::ConstPtr new_cmd_ptr = boost::make_shared<kr_mav_msgs::PositionCommand>(new_cmd);
+            if(!it2->second->Activate(new_cmd_ptr)) {
+              no_stopping_policy_ = true;
+              ROS_ERROR("Failed to activate stopping policy!!!!!!!!");
+              ROS_ERROR("Failed to activate stopping policy!!!!!!!!");
+              ROS_ERROR("Failed to activate stopping policy!!!!!!!!");
+              continue;
+            } else {
+              if(active_tracker_ != NULL)
+              {
+                active_tracker_->Deactivate();
+              }
+              active_tracker_ = it2->second;
+              ROS_ERROR("Stopping Policy Triggered Under Critical Safety Condition!!!!!!!!");
+              ROS_ERROR("Stopping Policy Triggered Under Critical Safety Condition!!!!!!!!");
+              ROS_ERROR("Stopping Policy Triggered Under Critical Safety Condition!!!!!!!!");
+            }
+
+          } else {
+            // initialize with empty command
+            kr_mav_msgs::PositionCommand new_cmd_temp = kr_mav_msgs::PositionCommand();
+            ROS_ERROR_THROTTLE(0.1,"+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+            ROS_ERROR_THROTTLE(0.1,"VERY UNSAFE SCENARIO, EVEN STOPPING POLICY FAIL TO OUTPUT SAFE COMMAND, PLEASE MANUALLY TAKE OVER!!!");
+            ROS_ERROR_THROTTLE(0.1,"VERY UNSAFE SCENARIO, EVEN STOPPING POLICY FAIL TO OUTPUT SAFE COMMAND, PLEASE MANUALLY TAKE OVER!!!");
+            ROS_ERROR_THROTTLE(0.1,"VERY UNSAFE SCENARIO, EVEN STOPPING POLICY FAIL TO OUTPUT SAFE COMMAND, PLEASE MANUALLY TAKE OVER!!!");
+            ROS_ERROR_STREAM_THROTTLE(0.1,"critical_safety_entered_: " << no_stopping_policy_);
+            ROS_ERROR_THROTTLE(0.1,"+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+            new_cmd_temp.position.x = msg->pose.pose.position.x;
+            new_cmd_temp.position.y = msg->pose.pose.position.y;
+            new_cmd_temp.position.z = msg->pose.pose.position.z;
+            new_cmd_temp.velocity.x = 0.0;
+            new_cmd_temp.velocity.y = 0.0;
+            new_cmd_temp.velocity.z = 0.0;
+            new_cmd_temp.acceleration.x = 0.0;
+            new_cmd_temp.acceleration.y = 0.0;
+            new_cmd_temp.acceleration.z = 0.0;
+
+            new_cmd_temp.header.frame_id = cmd_->header.frame_id;
+            new_cmd_temp.header.stamp = cmd_->header.stamp;
+            new_cmd_temp.yaw = last_cmd_.yaw;
+
+            new_cmd_temp.yaw_dot = 0.0;
+            
+            pub_cmd_.publish(new_cmd_temp);
+            // copy cmd_ to last_cmd_
+            last_cmd_initialized_ = true;
+            last_cmd_ = new_cmd_temp;
+          }
+        } else {
+          pub_cmd_.publish(cmd_);
+          // copy cmd_ to last_cmd_
+          last_cmd_initialized_ = true;
+          last_cmd_ = *cmd_;
+        }
+      }
 
       kr_tracker_msgs::TrackerStatus::Ptr status_msg(new kr_tracker_msgs::TrackerStatus);
       status_msg->header.stamp = msg->header.stamp;
@@ -149,6 +253,18 @@ void TrackersManager::odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
 bool TrackersManager::transition_callback(kr_tracker_msgs::Transition::Request &req,
                                           kr_tracker_msgs::Transition::Response &res)
 {
+  if (critical_safety_entered_){
+    ROS_ERROR("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+    ROS_ERROR("CRITICAL SAFETY ENTERED, CANNOT TRANSITION, PLEASE MANUALLY TAKE OVER!!!");
+    ROS_ERROR("CRITICAL SAFETY ENTERED, CANNOT TRANSITION, PLEASE MANUALLY TAKE OVER!!!");
+    ROS_ERROR("CRITICAL SAFETY ENTERED, CANNOT TRANSITION, PLEASE MANUALLY TAKE OVER!!!");
+    ROS_ERROR("++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
+    res.success = false;
+    res.message = std::string("Critical safety entered, cannot transition");
+    NODELET_WARN_STREAM(res.message);
+    return true;
+  }
+
   const std::map<std::string, kr_trackers_manager::Tracker *>::iterator it = tracker_map_.find(req.tracker);
   if(it == tracker_map_.end())
   {
