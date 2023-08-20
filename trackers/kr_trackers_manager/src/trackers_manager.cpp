@@ -144,7 +144,7 @@ void TrackersManager::odom_callback(const nav_msgs::Odometry::ConstPtr &msg)
       if (cmd_ != NULL){
         // if cmd position is too different from msg position, if yes, print error msg and set cmd to be the odometry position with 0 velocity
         double distance_squared = std::pow((cmd_->position.x - msg->pose.pose.position.x),2) + std::pow((cmd_->position.y - msg->pose.pose.position.y),2) + std::pow((cmd_->position.z - msg->pose.pose.position.z),2);
-        if (last_cmd_initialized_ && distance_squared > 1.0){
+        if (last_cmd_initialized_ && distance_squared > 0.49){
           ROS_ERROR("+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++");
           ROS_ERROR_STREAM("UNSAFE!!! CALLING STOPPING POLICY! cmd position is too different from odom position, distance_squared: " << distance_squared);
           ROS_ERROR_STREAM("UNSAFE!!! CALLING STOPPING POLICY! cmd position is too different from odom position, distance_squared: " << distance_squared);
